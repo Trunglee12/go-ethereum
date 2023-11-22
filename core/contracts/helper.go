@@ -2,14 +2,11 @@ package contracts
 
 import (
 	"math/big"
-	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-
-	"github.com/ethereum/go-ethereum/accounts/abi"
 )
 
 var (
@@ -187,16 +184,6 @@ func IsTransactionAllowed(tx *types.Transaction, sender *common.Address, statedb
 	}
 	// Return false if none of the above conditions are met.
 	return false
-}
-
-func GetSidraTokenAbi() abi.ABI {
-	output, err := abi.JSON(strings.NewReader(SidraTokenAbiString))
-	if err != nil {
-		// An error here probably means that the abi string is not valid.
-		// That should never happen.
-		panic(err)
-	}
-	return output
 }
 
 func GetCurrentOwnerAddr(statedb *state.StateDB) common.Address {

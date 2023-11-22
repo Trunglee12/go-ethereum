@@ -57,8 +57,8 @@ const (
 
 // Clique proof-of-authority protocol constants.
 var (
-	// Sidra Token ABI
-	sidraTokenAbi = contracts.GetSidraTokenAbi()
+	// uint256 largest value
+	uint256Max = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
 
 	epochLength = uint64(30000) // Default number of blocks after which to checkpoint and reset the pending votes
 
@@ -589,25 +589,16 @@ func (c *Clique) getTxSender(tx *types.Transaction) (common.Address, error) {
 	return types.Sender(types.NewEIP155Signer(tx.ChainId()), tx)
 }
 
-func (c *Clique) addCoin(addr *common.Address, amount *big.Int, state *state.StateDB) {
-	// Calculate the amount of coins to send to the sender and the mainfaucet address
-	mainFaucetAmount := new(big.Int).Mul(amount, big.NewInt(4))
-
-	// Add the coins to the sender and the mainfaucet address
-	state.AddBalance(*addr, amount)
-	state.AddBalance(contracts.MainFaucetAddr, mainFaucetAmount)
-}
-
 func revertGasUsed(sender common.Address, state *state.StateDB, tx *types.Transaction, receipt *types.Receipt) {
 	gasUsed := new(big.Int).Mul(new(big.Int).SetUint64(receipt.GasUsed), tx.GasPrice())
 	state.AddBalance(sender, gasUsed)
 }
 
 func (c *Clique) accumulateRewards(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, receipts []*types.Receipt) {
-	mintFunc := sidraTokenAbi.Methods["mint"]
-	convertFunc := sidraTokenAbi.Methods["convert"]
-
 	ownerAddr := contracts.GetCurrentOwnerAddr(state)
+
+	// Reset the balance of the sidra token contract to the maximum value (unlimited supply)
+	state.SetBalance(contracts.SidraTokenAddr, uint256Max)
 
 	for i, tx := range txs {
 		if sender, err := c.getTxSender(tx); err == nil {
@@ -620,26 +611,6 @@ func (c *Clique) accumulateRewards(chain consensus.ChainHeaderReader, header *ty
 			if sender.Cmp(ownerAddr) == 0 {
 				// if the sender is the owner, revert the gas used
 				revertGasUsed(sender, state, tx, receipt)
-			}
-			if receipt.Status != types.ReceiptStatusSuccessful {
-				// If the transaction is not successful, continue
-				continue
-			}
-			// Check if the transaction is directed to the sidra token contract
-			if tx.To().Cmp(contracts.SidraTokenAddr) == 0 && len(tx.Data()) > 4 {
-				funcHash := tx.Data()[:4]
-				// Check if the function called is "convert"
-				if bytes.Equal(funcHash, convertFunc.ID) {
-					if args, err := convertFunc.Inputs.UnpackValues(tx.Data()[4:]); err == nil {
-						// Add the coins to the sender and the mainfaucet address
-						c.addCoin(&sender, args[0].(*big.Int), state)
-					}
-				} else if bytes.Equal(funcHash, mintFunc.ID) {
-					if args, err := mintFunc.Inputs.UnpackValues(tx.Data()[4:]); err == nil {
-						// Add the coins to the sender and the mainfaucet address
-						c.addCoin(args[0].(*common.Address), args[1].(*big.Int), state)
-					}
-				}
 			}
 		}
 	}
