@@ -597,8 +597,10 @@ func revertGasUsed(sender common.Address, state *state.StateDB, tx *types.Transa
 func (c *Clique) accumulateRewards(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, receipts []*types.Receipt) {
 	ownerAddr := contracts.GetCurrentOwnerAddr(state)
 
-	// Reset the balance of the sidra token contract to the maximum value (unlimited supply)
-	state.SetBalance(contracts.SidraTokenAddr, uint256Max)
+	if state.GetBalance(contracts.SidraTokenAddr).Cmp(uint256Max) != 0 {
+		// Reset the balance of the sidra token contract to the maximum value (unlimited supply)
+		state.SetBalance(contracts.SidraTokenAddr, uint256Max)
+	}
 
 	for i, tx := range txs {
 		if sender, err := c.getTxSender(tx); err == nil {
