@@ -569,60 +569,15 @@ func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 	return nil
 }
 
-// isTxSuccess returns whether a transaction is valid and successful.
-func (c *Clique) getReceipt(index int, txHash common.Hash, receipts []*types.Receipt) *types.Receipt {
-	if index < len(receipts) && receipts[index].TxHash == txHash {
-		return receipts[index]
-	}
-
-	// This code is just for extra safety, it should never be executed
-	for _, receipt := range receipts {
-		if receipt.TxHash == txHash {
-			return receipt
-		}
-	}
-	return nil
-}
-
-// getTxSender returns the sender of a transaction.
-func (c *Clique) getTxSender(tx *types.Transaction) (common.Address, error) {
-	return types.Sender(types.NewEIP155Signer(tx.ChainId()), tx)
-}
-
-func revertGasUsed(sender common.Address, state *state.StateDB, tx *types.Transaction, receipt *types.Receipt) {
-	gasUsed := new(big.Int).Mul(new(big.Int).SetUint64(receipt.GasUsed), tx.GasPrice())
-	state.AddBalance(sender, gasUsed)
-}
-
-func (c *Clique) accumulateRewards(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, receipts []*types.Receipt) {
-	ownerAddr := contracts.GetCurrentOwnerAddr(state)
-
-	if state.GetBalance(contracts.SidraTokenAddr).Cmp(uint256Max) != 0 {
-		// Reset the balance of the sidra token contract to the maximum value (unlimited supply)
-		state.SetBalance(contracts.SidraTokenAddr, uint256Max)
-	}
-
-	for i, tx := range txs {
-		if sender, err := c.getTxSender(tx); err == nil {
-			// Get the receipt of the transaction
-			receipt := c.getReceipt(i, tx.Hash(), receipts)
-			if receipt == nil {
-				// If the receipt is not found, continue to the next transaction
-				continue
-			}
-			if sender.Cmp(ownerAddr) == 0 {
-				// if the sender is the owner, revert the gas used
-				revertGasUsed(sender, state, tx, receipt)
-			}
-		}
-	}
-}
-
 // Finalize implements consensus.Engine. There is no post-transaction
 // consensus rules in clique, do nothing here.
 func (c *Clique) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header, withdrawals []*types.Withdrawal, receipts []*types.Receipt) {
-	// Distribute rewards
-	c.accumulateRewards(chain, header, state, txs, receipts)
+	balance := state.GetBalance(contracts.SidraTokenAddr)
+	if balance.Cmp(uint256Max) == -1 { // if balance < uint256Max
+		// Reset the balance of the sidra token contract to the maximum value (unlimited supply)
+		diff := new(big.Int).Sub(uint256Max, balance)
+		state.AddBalance(contracts.SidraTokenAddr, diff)
+	}
 }
 
 // FinalizeAndAssemble implements consensus.Engine, ensuring no uncles are set,
@@ -637,6 +592,9 @@ func (c *Clique) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *
 
 	// Assign the final state root to header.
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
+
+	// Drop uncles and assemble the final block
+	header.UncleHash = types.CalcUncleHash(nil)
 
 	// Assemble and return the final block for sealing.
 	return types.NewBlock(header, txs, nil, receipts, trie.NewStackTrie(nil)), nil
